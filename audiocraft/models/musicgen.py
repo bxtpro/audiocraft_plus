@@ -46,11 +46,20 @@ class MusicGen:
         self.generation_params: dict = {}
         self.set_generation_params(duration=15)  # 15 seconds by default
         self._progress_callback: tp.Optional[tp.Callable[[int, int], None]] = None
-        if self.device.type == 'cpu':
-            self.autocast = TorchAutocast(enabled=False)
-        else:
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            lm.to(self.device)
             self.autocast = TorchAutocast(
                 enabled=True, device_type=self.device.type, dtype=torch.float16)
+        else:
+            self.device = torch.device("cpu")
+            self.autocast = TorchAutocast(enabled=False)             
+        
+        # if self.device.type == 'cpu':
+        #     self.autocast = TorchAutocast(enabled=False)
+        # else:
+        #     self.autocast = TorchAutocast(
+        #         enabled=True, device_type=self.device.type, dtype=torch.float16)
 
     @property
     def frame_rate(self) -> int:
