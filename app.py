@@ -928,8 +928,8 @@ def predict_full(gen_type, model, decoder, custom_model, prompt_amount, struc_pr
 max_textboxes = 10
 
 
-#def get_available_models():
-    #return sorted([re.sub('.pt$', '', item.name) for item in list(Path('models/').glob('*')) if item.name.endswith('.pt')])
+def get_available_models():
+    return sorted([re.sub('.pt$', '', item.name) for item in list(Path('models/').glob('*')) if item.name.endswith('.pt')])
 
 
 def get_available_folders():
