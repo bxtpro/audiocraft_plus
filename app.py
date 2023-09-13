@@ -148,7 +148,8 @@ def load_model(version='GrandaddyShmax/musicgen-melody', custom_model=None, gen_
     print("Loading model", version)
     if MODELS is None:
         if version == 'GrandaddyShmax/musicgen-custom':
-            MODEL = MusicGen.get_pretrained(custom_model)
+            MODEL= MusicGen.get_pretrained(name="facebook/musicgen-medium")
+            MODEL.lm.load_state_dict(torch.load(custom_model + ".pt"))
         else:
             if gen_type == "music":
                 MODEL = MusicGen.get_pretrained(version)
@@ -261,8 +262,8 @@ def info_to_params(audio_path):
                     bpm = (120 if data['bpm'] == "none" else int(data['bpm'])) if 'bpm' in data else 120
                     key = ("C" if data['key'] == "none" else data['key']) if 'key' in data else "C"
                     scale = ("Major" if data['scale'] == "none" else data['scale']) if 'scale' in data else "Major"
-                    model = data['model'] if 'model' in data else "large"
-                    custom_model = (data['custom_model'] if (data['custom_model']) in get_available_folders() else None) if 'custom_model' in data else None
+                    model = data['model'] if 'model' in data else "medium"
+                    custom_model = (data['custom_model'] if (data['custom_model']) in get_available_models() else None) if 'custom_model' in data else None
                     decoder = data['decoder'] if 'decoder' in data else "Default"
                     if 'texts' not in data:
                         unique_prompts = 1
@@ -304,8 +305,8 @@ def info_to_params(audio_path):
                     bpm = (120 if data['bpm'] == "none" else int(data['bpm'])) if 'bpm' in data else 120
                     key = ("C" if data['key'] == "none" else data['key']) if 'key' in data else "C"
                     scale = ("Major" if data['scale'] == "none" else data['scale']) if 'scale' in data else "Major"
-                    model = data['model'] if 'model' in data else "large"
-                    custom_model = (data['custom_model'] if data['custom_model'] in get_available_folders() else None) if 'custom_model' in data else None
+                    model = data['model'] if 'model' in data else "medium"
+                    custom_model = (data['custom_model'] if data['custom_model'] in get_available_models() else None) if 'custom_model' in data else None
                     decoder = data['decoder'] if 'decoder' in data else "Default"
                     if 'texts' not in data:
                         unique_prompts = 1
@@ -1035,10 +1036,10 @@ def ui_full(launch_kwargs):
                             channel = gr.Radio(["mono", "stereo", "stereo effect"], label="Output Audio Channels", value="stereo", interactive=True, scale=1)
                             sr_select = gr.Dropdown(["11025", "16000", "22050", "24000", "32000", "44100", "48000"], label="Output Audio Sample Rate", value="48000", interactive=True)
                         with gr.Row():
-                            model = gr.Radio(["melody", "small", "medium", "large", "custom"], label="Model", value="large", interactive=True, scale=1)
+                            model = gr.Radio(["melody", "small", "medium", "large", "custom"], label="Model", value="custom", interactive=True, scale=1)
                             with gr.Column():
-                                dropdown = gr.Dropdown(choices=get_available_folders(), value=("No models found" if len(get_available_folders()) < 1 else get_available_folders()[0]), label='Custom Model (models folder)', elem_classes='slim-dropdown', interactive=True)
-                                ui.create_refresh_button(dropdown, lambda: None, lambda: {'choices': get_available_folders()}, 'refresh-button')
+                                dropdown = gr.Dropdown(choices=get_available_models(), value=("No models found" if len(get_available_models()) < 1 else get_available_models()[0]), label='Custom Model (models folder)', elem_classes='slim-dropdown', interactive=True)
+                                ui.create_refresh_button(dropdown, lambda: None, lambda: {'choices': get_available_models()}, 'refresh-button')
                         with gr.Row():
                             decoder = gr.Radio(["Default", "MultiBand_Diffusion"], label="Decoder", value="Default", interactive=True)
                         with gr.Row():
