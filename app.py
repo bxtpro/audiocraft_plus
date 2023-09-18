@@ -126,7 +126,7 @@ def load_model(version='facebook/musicgen-melody', custom_model=None, gen_type="
     if MODELS is None:
         if version == 'facebook/musicgen-custom':
             MODEL= MusicGen.get_pretrained(name="facebook/musicgen-medium")
-            MODEL.lm.load_state_dict(torch.load(custom_model + ".pt"))
+            MODEL.lm.load_state_dict(torch.load(Path(".") / f"{custom_model}.pt"))
         else:
             if gen_type == "music":
                 MODEL = MusicGen.get_pretrained(version)
