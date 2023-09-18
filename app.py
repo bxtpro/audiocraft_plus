@@ -54,7 +54,6 @@ MODELS = None
 UNLOAD_MODEL = False
 MOVE_TO_CPU = False
 IS_BATCHED = "facebook/MusicGen" in os.environ.get('SPACE_ID', '')
-print(IS_BATCHED)
 MAX_BATCH_SIZE = 12
 BATCHED_DURATION = 15
 INTERRUPTING = False
@@ -121,33 +120,11 @@ class FileCleaner:
 file_cleaner = FileCleaner()
 
 
-def make_waveform(*args, **kwargs):
-    # Further remove some warnings.
-    be = time.time()
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        height = kwargs.pop('height')
-        width = kwargs.pop('width')
-        if height < 256:
-            height = 256
-        if width < 256:
-            width = 256
-        waveform_video = gr.make_waveform(*args, **kwargs)
-        out = f"{generate_random_string(12)}.mp4"
-        image = kwargs.get('bg_image', None)
-        if image is None:
-            resize_video(waveform_video, out, 900, 300)
-        else:
-            resize_video(waveform_video, out, width, height)
-        print("Make a video took", time.time() - be)
-        return out
-
-
-def load_model(version='GrandaddyShmax/musicgen-melody', custom_model=None, gen_type="music"):
+def load_model(version='facebook/musicgen-melody', custom_model=None, gen_type="music"):
     global MODEL, MODELS
-    print("Loading model", version)
+    print("Loading model ", version, " ", custom_model)
     if MODELS is None:
-        if version == 'GrandaddyShmax/musicgen-custom':
+        if version == 'facebook/musicgen-custom':
             MODEL= MusicGen.get_pretrained(name="facebook/musicgen-medium")
             MODEL.lm.load_state_dict(torch.load(custom_model + ".pt"))
         else:
@@ -164,7 +141,7 @@ def load_model(version='GrandaddyShmax/musicgen-melody', custom_model=None, gen_
             MODEL.to('cpu') # move to cache
             print("Previous model moved to CPU in %.2fs" % (time.monotonic() - t1))
             t1 = time.monotonic()
-        if version != 'GrandaddyShmax/musicgen-custom' and MODELS.get(version) is None:
+        if version != 'facebook/musicgen-custom' and MODELS.get(version) is None:
             print("Loading model %s from disk" % version)
             if gen_type == "music":
                 result = MusicGen.get_pretrained(version)
@@ -472,7 +449,7 @@ def unload_diffusion():
         MBD = None
 
 
-def _do_predictions(gen_type, texts, melodies, sample, trim_start, trim_end, duration, image, height, width, background, bar1, bar2, channel, sr_select, progress=False, **gen_kwargs):
+def _do_predictions(gen_type, texts, melodies, sample, trim_start, trim_end, duration, channel, sr_select, progress=False, **gen_kwargs):
     if gen_type == "music":
         maximum_size = 29.5
     elif gen_type == "audio":
@@ -596,7 +573,6 @@ def _do_predictions(gen_type, texts, melodies, sample, trim_start, trim_end, dur
         outputs = convert_audio(outputs, target_sr, int(sr_select), 2)
     elif channel == "mono" and sr_select != "32000":
         outputs = convert_audio(outputs, target_sr, int(sr_select), 1)
-    out_files = []
     out_audios = []
     out_backup = []
     for output in outputs:
@@ -608,7 +584,6 @@ def _do_predictions(gen_type, texts, melodies, sample, trim_start, trim_end, dur
             if channel == "stereo effect":
                 make_pseudo_stereo(file.name, sr_select, pan=True, delay=True);
 
-            out_files.append(pool.submit(make_waveform, file.name, bg_image=image, bg_color=background, bars_color=(bar1, bar2), fg_alpha=1.0, bar_count=75, height=height, width=width))
             out_audios.append(file.name)
             file_cleaner.add(file.name)
             print(f'wav: {file.name}')
@@ -619,12 +594,8 @@ def _do_predictions(gen_type, texts, melodies, sample, trim_start, trim_end, dur
                 loudness_headroom_db=16, loudness_compressor=True, add_suffix=False)
             out_backup.append(file.name)
             file_cleaner.add(file.name)
-    res = [out_file.result() for out_file in out_files]
     res_audio = out_audios
     res_backup = out_backup
-    for file in res:
-        file_cleaner.add(file)
-        print(f'video: {file}')
     print("batch finished", len(texts), time.time() - be)
     print("Tempfiles currently stored: ", len(file_cleaner.files))
     if MOVE_TO_CPU:
@@ -633,7 +604,7 @@ def _do_predictions(gen_type, texts, melodies, sample, trim_start, trim_end, dur
         MODEL = None
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
-    return res, res_audio, res_backup, input_length
+    return res_audio, res_backup, input_length
 
 
 def predict_batched(texts, melodies):
@@ -684,23 +655,20 @@ def add_tags(filename, tags):
     return json_file.name;
 
 
-def save_outputs(mp4, wav_tmp, tags, gen_type):
-    # mp4: .mp4 file name in root running folder of app.py    
+def save_outputs(wav_tmp, tags, gen_type):
     # wav_tmp: temporary wav file located in %TEMP% folder
     # seed - used seed 
-    # exanple BgnJtr4Pn1AJ.mp4,  C:\Users\Alex\AppData\Local\Temp\tmp4ermrebs.wav,  195123182343465
-    # procedure read generated .mp4 and wav files, rename it by using seed as name, 
-    # and will store it to ./output/today_date/wav and  ./output/today_date/mp4 folders. 
+    # example - C:\Users\Alex\AppData\Local\Temp\tmp4ermrebs.wav,  195123182343465
+    # procedure read generated wav files, rename it by using seed as name, 
+    # and will store it to ./output/today_date/wav and  folders. 
     # if file with same seed number already exist its make postfix in name like seed(n) 
     # where is n - consiqunce number 1-2-3-4 and so on
-    # then we store generated mp4 and wav into destination folders.     
+    # then we store generated wav into destination folders.     
 
     current_date = datetime.now().strftime("%Y%m%d")
     wav_directory = os.path.join(os.getcwd(), 'output', current_date, gen_type,'wav')
-    mp4_directory = os.path.join(os.getcwd(), 'output', current_date, gen_type,'mp4')
     json_directory = os.path.join(os.getcwd(), 'output', current_date, gen_type,'json')
     os.makedirs(wav_directory, exist_ok=True)
-    os.makedirs(mp4_directory, exist_ok=True)
     os.makedirs(json_directory, exist_ok=True)
 
     filename = str(tags[7]) + '.wav'
@@ -712,17 +680,12 @@ def save_outputs(mp4, wav_tmp, tags, gen_type):
         counter += 1
 
     shutil.copyfile(wav_tmp, target); # make copy of original file
-    json_file = add_tags(target, tags);
+    json_file = add_tags(target, tags)
     
-    wav_target=target;
-    target=target.replace('wav', 'mp4');
-    mp4_target=target;
+    wav_target=target
+    target=target.replace('wav', 'json')
     
-    mp4=r'./' +mp4;    
-    shutil.copyfile(mp4, target); # make copy of original file  
-    _ = add_tags(target, tags);
-
-    target=target.replace('mp4', 'json'); # change the extension to json
+    _ = add_tags(target, tags)
     json_target=target; # store the json target
 
     with open(target, 'w') as f: # open a writable file object
@@ -730,21 +693,19 @@ def save_outputs(mp4, wav_tmp, tags, gen_type):
     
     os.remove(json_file)
 
-    return wav_target, mp4_target, json_target;
+    return wav_target, json_target
 
 
 def clear_cash():
     # delete all temporary files genegated my system
     current_date = datetime.now().date()
     current_directory = os.getcwd()
-    files = glob.glob(os.path.join(current_directory, '*.mp4'))
     for file in files:
         creation_date = datetime.fromtimestamp(os.path.getctime(file)).date()
         if creation_date == current_date:
             os.remove(file)
 
     temp_directory = os.environ.get('TEMP')
-    files = glob.glob(os.path.join(temp_directory, 'tmp*.mp4'))
     for file in files:
         creation_date = datetime.fromtimestamp(os.path.getctime(file)).date()
         if creation_date == current_date:
@@ -814,7 +775,7 @@ def calc_time(gen_type, s, duration, overlap, d0, d1, d2, d3, d4, d5, d6, d7, d8
     return calc[0], calc[1], calc[2], calc[3], calc[4], calc[5], calc[6], calc[7], calc[8], calc[9]
 
 
-def predict_full(gen_type, model, decoder, custom_model, prompt_amount, struc_prompt, bpm, key, scale, global_prompt, p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, audio, mode, trim_start, trim_end, duration, topk, topp, temperature, cfg_coef, seed, overlap, image, height, width, background, bar1, bar2, channel, sr_select, progress=gr.Progress()):
+def predict_full(gen_type, model, decoder, custom_model, prompt_amount, struc_prompt, bpm, key, scale, global_prompt, p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, audio, mode, trim_start, trim_end, duration, topk, topp, temperature, cfg_coef, seed, overlap, channel, sr_select, progress=gr.Progress()):
     global INTERRUPTING
     global USE_DIFFUSION
     INTERRUPTING = False
@@ -849,10 +810,10 @@ def predict_full(gen_type, model, decoder, custom_model, prompt_amount, struc_pr
 
     if gen_type == "music":
         model_shrt = model
-        model = "GrandaddyShmax/musicgen-" + model
+        model = "facebook/musicgen-" + model
     elif gen_type == "audio":
         model_shrt = model
-        model = "GrandaddyShmax/audiogen-" + model
+        model = "facebook/audiogen-" + model
 
     if MODEL is None or MODEL.name != (model):
         load_model(model, custom_model, gen_type)
@@ -880,7 +841,7 @@ def predict_full(gen_type, model, decoder, custom_model, prompt_amount, struc_pr
       elif mode == "melody":
           melody = audio
 
-    custom_model_shrt = "none" if model != "GrandaddyShmax/musicgen-custom" else custom_model_shrt
+    custom_model_shrt = "none" if model != "facebook/musicgen-custom" else custom_model_shrt
 
     text_cat = [p0, p1, p2, p3, p4, p5, p6, p7, p8, p9]
     drag_cat = [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9]
@@ -912,18 +873,16 @@ def predict_full(gen_type, model, decoder, custom_model, prompt_amount, struc_pr
         ind2 = 0
         ind = ind + 1
 
-    outs, outs_audio, outs_backup, input_length = _do_predictions(
-        gen_type, [texts], [melody], sample, trim_start, trim_end, duration, image, height, width, background, bar1, bar2, channel, sr_select, progress=True,
+    outs_audio, outs_backup, input_length = _do_predictions(
+        gen_type, [texts], [melody], sample, trim_start, trim_end, duration, channel, sr_select, progress=True,
         top_k=topk, top_p=topp, temperature=temperature, cfg_coef=cfg_coef, extend_stride=MODEL.max_duration-overlap)
     tags = [str(global_prompt), str(bpm), str(key), str(scale), str(raw_texts), str(duration), str(overlap), str(seed), str(audio_mode), str(input_length), str(channel), str(sr_select), str(model_shrt), str(custom_model_shrt), str(decoder), str(topk), str(topp), str(temperature), str(cfg_coef), str(gen_type)]
-    wav_target, mp4_target, json_target = save_outputs(outs[0], outs_audio[0], tags, gen_type);
+    wav_target, json_target = save_outputs(outs_audio[0], tags, gen_type)
     # Removes the temporary files.
-    for out in outs:
-        os.remove(out)
     for out in outs_audio:
         os.remove(out)
 
-    return mp4_target, wav_target, outs_backup[0], [mp4_target, wav_target, json_target], seed
+    return wav_target, outs_backup[0], [wav_target, json_target], seed
 
 
 max_textboxes = 10
@@ -954,7 +913,7 @@ def ui_full(launch_kwargs):
 
             ### An All-in-One AudioCraft WebUI
 
-            Thanks to: facebookresearch, Camenduru, rkfg, oobabooga, AlexHK and GrandaddyShmax
+            Thanks to: facebookresearch, Camenduru, rkfg, oobabooga, AlexHK and facebook
             """
         )
         with gr.Tab("MusicGen"):
@@ -1019,17 +978,6 @@ def ui_full(launch_kwargs):
                                     trim_end = gr.Number(label="Trim End", value=0, interactive=True)
                             audio = gr.Audio(source="upload", type="numpy", label="Input Audio (optional)", interactive=True)
 
-                    with gr.Tab("Customization"):
-                        with gr.Row():
-                            with gr.Column():
-                                background = gr.ColorPicker(value="#0f0f0f", label="background color", interactive=True, scale=0)
-                                bar1 = gr.ColorPicker(value="#84cc16", label="bar color start", interactive=True, scale=0)
-                                bar2 = gr.ColorPicker(value="#10b981", label="bar color end", interactive=True, scale=0)
-                            with gr.Column():
-                                image = gr.Image(label="Background Image", type="filepath", interactive=True, scale=4)
-                                with gr.Row():
-                                    height = gr.Number(label="Height", value=512, interactive=True)
-                                    width = gr.Number(label="Width", value=768, interactive=True)
 
                     with gr.Tab("Settings"):
                         with gr.Row():
@@ -1053,7 +1001,6 @@ def ui_full(launch_kwargs):
                         _ = gr.Button("Interrupt").click(fn=interrupt, queue=False)
                 with gr.Column() as c:
                     with gr.Tab("Output"):
-                        output = gr.Video(label="Generated Music", scale=0)
                         with gr.Row():
                             audio_only = gr.Audio(type="numpy", label="Audio Only", interactive=False)
                             backup_only = gr.Audio(type="numpy", label="Backup Audio", interactive=False, visible=False)
@@ -1152,28 +1099,6 @@ def ui_full(launch_kwargs):
 
                             - **[Input Audio (audio file)]:**  
                             Input here the audio you wish to use with "melody" or "sample" mode.
-
-                            ---
-
-                            ### Customization Tab:
-
-                            - **[Background Color (color)]:**  
-                            Works only if you don't upload image. Color of the background of the waveform.
-
-                            - **[Bar Color Start (color)]:**  
-                            First color of the waveform bars.
-
-                            - **[Bar Color End (color)]:**  
-                            Second color of the waveform bars.
-
-                            - **[Background Image (image)]:**  
-                            Background image that you wish to be attached to the generated video along with the waveform.
-
-                            - **[Height and Width (numbers)]:**  
-                            Output video resolution, only works with image.  
-                            (minimum height and width is 256).
-                            
-                            ---
 
                             ### Settings Tab:
 
@@ -1275,18 +1200,6 @@ def ui_full(launch_kwargs):
                                     trim_end_a = gr.Number(label="Trim End", value=0, interactive=True)
                             audio_a = gr.Audio(source="upload", type="numpy", label="Input Audio (optional)", interactive=True)
 
-                    with gr.Tab("Customization"):
-                        with gr.Row():
-                            with gr.Column():
-                                background_a = gr.ColorPicker(value="#0f0f0f", label="background color", interactive=True, scale=0)
-                                bar1_a = gr.ColorPicker(value="#84cc16", label="bar color start", interactive=True, scale=0)
-                                bar2_a = gr.ColorPicker(value="#10b981", label="bar color end", interactive=True, scale=0)
-                            with gr.Column():
-                                image_a = gr.Image(label="Background Image", type="filepath", interactive=True, scale=4)
-                                with gr.Row():
-                                    height_a = gr.Number(label="Height", value=512, interactive=True)
-                                    width_a = gr.Number(label="Width", value=768, interactive=True)
-
                     with gr.Tab("Settings"):
                         with gr.Row():
                             channel_a = gr.Radio(["mono", "stereo", "stereo effect"], label="Output Audio Channels", value="stereo", interactive=True, scale=1)
@@ -1304,7 +1217,6 @@ def ui_full(launch_kwargs):
                         _ = gr.Button("Interrupt").click(fn=interrupt, queue=False)
                 with gr.Column():
                     with gr.Tab("Output"):
-                        output_a = gr.Video(label="Generated Audio", scale=0)
                         with gr.Row():
                             audio_only_a = gr.Audio(type="numpy", label="Audio Only", interactive=False)
                             backup_only_a = gr.Audio(type="numpy", label="Backup Audio", interactive=False, visible=False)
@@ -1390,28 +1302,6 @@ def ui_full(launch_kwargs):
 
                             - **[Input Audio (audio file)]:**  
                             Input here the audio you wish to use.
-
-                            ---
-
-                            ### Customization Tab:
-
-                            - **[Background Color (color)]:**  
-                            Works only if you don't upload image. Color of the background of the waveform.
-
-                            - **[Bar Color Start (color)]:**  
-                            First color of the waveform bars.
-
-                            - **[Bar Color End (color)]:**  
-                            Second color of the waveform bars.
-
-                            - **[Background Image (image)]:**  
-                            Background image that you wish to be attached to the generated video along with the waveform.
-
-                            - **[Height and Width (numbers)]:**  
-                            Output video resolution, only works with image.  
-                            (minimum height and width is 256).
-                            
-                            ---
 
                             ### Settings Tab:
 
@@ -1595,12 +1485,6 @@ def ui_full(launch_kwargs):
 
 
 
-                            ### v1.1.3
-
-                            - Added customization options for generated waveform
-
-
-
                             ### v1.1.2
 
                             - Removed sample length limit: now you can input audio of any length as music sample
@@ -1636,13 +1520,13 @@ def ui_full(launch_kwargs):
                             
                             ## MusicGen+ is an extended version of the original MusicGen by facebookresearch. 
                             
-                            ### Repo: https://github.com/GrandaddyShmax/audiocraft_plus/tree/plus
+                            ### Repo: https://github.com/facebook/audiocraft_plus/tree/plus
 
                             ---
                             
                             ### This project was possible thanks to:
 
-                            #### GrandaddyShmax - https://github.com/GrandaddyShmax
+                            #### facebook - https://github.com/facebook
 
                             #### Camenduru - https://github.com/camenduru
 
@@ -1657,14 +1541,14 @@ def ui_full(launch_kwargs):
         send_gen.click(info_to_params, inputs=[in_audio], outputs=[decoder, struc_prompts, global_prompt, bpm, key, scale, model, dropdown, s, prompts[0], prompts[1], prompts[2], prompts[3], prompts[4], prompts[5], prompts[6], prompts[7], prompts[8], prompts[9], repeats[0], repeats[1], repeats[2], repeats[3], repeats[4], repeats[5], repeats[6], repeats[7], repeats[8], repeats[9], mode, duration, topk, topp, temperature, cfg_coef, seed, overlap, channel, sr_select], queue=False)
         reuse_seed.click(fn=lambda x: x, inputs=[seed_used], outputs=[seed], queue=False)
         send_audio.click(fn=lambda x: x, inputs=[backup_only], outputs=[audio], queue=False)
-        submit.click(predict_full, inputs=[gen_type, model, decoder, dropdown, s, struc_prompts, bpm, key, scale, global_prompt, prompts[0], prompts[1], prompts[2], prompts[3], prompts[4], prompts[5], prompts[6], prompts[7], prompts[8], prompts[9], repeats[0], repeats[1], repeats[2], repeats[3], repeats[4], repeats[5], repeats[6], repeats[7], repeats[8], repeats[9], audio, mode, trim_start, trim_end, duration, topk, topp, temperature, cfg_coef, seed, overlap, image, height, width, background, bar1, bar2, channel, sr_select], outputs=[output, audio_only, backup_only, download, seed_used])
+        submit.click(predict_full, inputs=[gen_type, model, decoder, dropdown, s, struc_prompts, bpm, key, scale, global_prompt, prompts[0], prompts[1], prompts[2], prompts[3], prompts[4], prompts[5], prompts[6], prompts[7], prompts[8], prompts[9], repeats[0], repeats[1], repeats[2], repeats[3], repeats[4], repeats[5], repeats[6], repeats[7], repeats[8], repeats[9], audio, mode, trim_start, trim_end, duration, topk, topp, temperature, cfg_coef, seed, overlap, channel, sr_select], outputs=[audio_only, backup_only, download, seed_used])
         input_type.change(toggle_audio_src, input_type, [audio], queue=False, show_progress=False)
         to_calc.click(calc_time, inputs=[gen_type, s, duration, overlap, repeats[0], repeats[1], repeats[2], repeats[3], repeats[4], repeats[5], repeats[6], repeats[7], repeats[8], repeats[9]], outputs=[calcs[0], calcs[1], calcs[2], calcs[3], calcs[4], calcs[5], calcs[6], calcs[7], calcs[8], calcs[9]], queue=False)
 
         send_gen_a.click(info_to_params_a, inputs=[in_audio], outputs=[decoder_a, struc_prompts_a, global_prompt_a, s_a, prompts_a[0], prompts_a[1], prompts_a[2], prompts_a[3], prompts_a[4], prompts_a[5], prompts_a[6], prompts_a[7], prompts_a[8], prompts_a[9], repeats_a[0], repeats_a[1], repeats_a[2], repeats_a[3], repeats_a[4], repeats_a[5], repeats_a[6], repeats_a[7], repeats_a[8], repeats_a[9], duration_a, topk_a, topp_a, temperature_a, cfg_coef_a, seed_a, overlap_a, channel_a, sr_select_a], queue=False)
         reuse_seed_a.click(fn=lambda x: x, inputs=[seed_used_a], outputs=[seed_a], queue=False)
         send_audio_a.click(fn=lambda x: x, inputs=[backup_only_a], outputs=[audio_a], queue=False)
-        submit_a.click(predict_full, inputs=[gen_type_a, model_a, decoder_a, dropdown, s_a, struc_prompts_a, bpm, key, scale, global_prompt_a, prompts_a[0], prompts_a[1], prompts_a[2], prompts_a[3], prompts_a[4], prompts_a[5], prompts_a[6], prompts_a[7], prompts_a[8], prompts_a[9], repeats_a[0], repeats_a[1], repeats_a[2], repeats_a[3], repeats_a[4], repeats_a[5], repeats_a[6], repeats_a[7], repeats_a[8], repeats_a[9], audio_a, mode_a, trim_start_a, trim_end_a, duration_a, topk_a, topp_a, temperature_a, cfg_coef_a, seed_a, overlap_a, image_a, height_a, width_a, background_a, bar1_a, bar2_a, channel_a, sr_select_a], outputs=[output_a, audio_only_a, backup_only_a, download_a, seed_used_a])
+        submit_a.click(predict_full, inputs=[gen_type_a, model_a, decoder_a, dropdown, s_a, struc_prompts_a, bpm, key, scale, global_prompt_a, prompts_a[0], prompts_a[1], prompts_a[2], prompts_a[3], prompts_a[4], prompts_a[5], prompts_a[6], prompts_a[7], prompts_a[8], prompts_a[9], repeats_a[0], repeats_a[1], repeats_a[2], repeats_a[3], repeats_a[4], repeats_a[5], repeats_a[6], repeats_a[7], repeats_a[8], repeats_a[9], audio_a, mode_a, trim_start_a, trim_end_a, duration_a, topk_a, topp_a, temperature_a, cfg_coef_a, seed_a, overlap_a, channel_a, sr_select_a], outputs=[audio_only_a, backup_only_a, download_a, seed_used_a])
         input_type_a.change(toggle_audio_src, input_type_a, [audio_a], queue=False, show_progress=False)
         to_calc_a.click(calc_time, inputs=[gen_type_a, s_a, duration_a, overlap_a, repeats_a[0], repeats_a[1], repeats_a[2], repeats_a[3], repeats_a[4], repeats_a[5], repeats_a[6], repeats_a[7], repeats_a[8], repeats_a[9]], outputs=[calcs_a[0], calcs_a[1], calcs_a[2], calcs_a[3], calcs_a[4], calcs_a[5], calcs_a[6], calcs_a[7], calcs_a[8], calcs_a[9]], queue=False)
 
@@ -1673,21 +1557,7 @@ def ui_full(launch_kwargs):
         def variable_outputs(k):
             k = int(k) - 1
             return [gr.Textbox.update(visible=True)]*k + [gr.Textbox.update(visible=False)]*(max_textboxes-k)
-        def get_size(image):
-            if image is not None:
-                img = Image.open(image)
-                img_height = img.height
-                img_width = img.width
-                if (img_height%2) != 0:
-                    img_height = img_height + 1
-                if (img_width%2) != 0:
-                    img_width = img_width + 1
-                return img_height, img_width
-            else:
-                return 512, 768
 
-        image.change(get_size, image, outputs=[height, width])
-        image_a.change(get_size, image_a, outputs=[height_a, width_a])
         s.change(variable_outputs, s, textboxes)
         s_a.change(variable_outputs, s_a, textboxes_a)
         interface.queue().launch(**launch_kwargs)
