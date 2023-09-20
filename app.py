@@ -36,6 +36,8 @@ from audiocraft.models import AudioGen, MusicGen, MultiBandDiffusion
 from audiocraft.utils import ui
 import random, string
 
+import gdown
+
 version = "2.0.1"
 
 theme = gr.themes.Base(
@@ -125,8 +127,16 @@ def load_model(version='facebook/musicgen-melody', custom_model=None, gen_type="
     print("Loading model ", version, " ", custom_model)
     if MODELS is None:
         if version == 'facebook/musicgen-custom':
-            MODEL= MusicGen.get_pretrained(name="facebook/musicgen-medium")
-            MODEL.lm.load_state_dict(torch.load(Path(".") / f"{custom_model}.pt"))
+            custom_model_path = Path(".") / f"{custom_model}.pt"
+            if custom_model == "models/lofi":
+                MODEL = MusicGen.get_pretrained(name="facebook/musicgen-medium")
+                if not os.path.exists(custom_model_path):
+                    print("Downloading ", custom_model)
+                    with open(Path(".") / f"{custom_model}.index") as fin:
+                        url = fin.read()
+                        gdown.download(url, str(custom_model_path))
+                    os.remove(Path(".") / f"{custom_model}.index")
+            MODEL.lm.load_state_dict(torch.load(custom_model_path))
         else:
             if gen_type == "music":
                 MODEL = MusicGen.get_pretrained(version)
@@ -889,7 +899,8 @@ max_textboxes = 10
 
 
 def get_available_models():
-    return sorted([re.sub('.pt$', '', item.name) for item in list(Path('models/').glob('*')) if item.name.endswith('.pt')])
+    return sorted([re.sub('.pt$', '', item.name) for item in list(Path('models/').glob('*')) if item.name.endswith('.pt')] +
+                  [re.sub('.index$', '', item.name) for item in list(Path('models/').glob('*')) if item.name.endswith('.index')])
 
 
 def get_available_folders():

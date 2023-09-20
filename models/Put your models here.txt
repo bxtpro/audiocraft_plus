@@ -1,1 +1,1 @@
-Lofi:https://drive.google.com/file/d/1REGjZx1JKH9aK1GSpAbh4hhFbO_yoSND/view?usp=sharing
+Put your model file here (eg. model.pt) to load or model link to download.
