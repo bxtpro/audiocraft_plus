@@ -21,3 +21,6 @@ gradio
 torchmetrics
 encodec
 pytaglib
+gradio==3.35.2
+gradio-client==0.2.7
+pydantic==1.10.9
